@@ -18,6 +18,9 @@ Fine-tuning the library models for sequence to sequence.
 """
 # You can also adapt this script on your own sequence to sequence task. Pointers for this are left as comments.
 
+# multi tensor: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none --cudabacktrace=true -x true --force-overwrite=true -o multi_tensor_adamw_t5_trainer python examples/pytorch/translation/run_translation.py --model_name_or_path t5-base --do_train --label_smoothing 0.1 --logging_strategy no --save_strategy no --per_device_train_batch_size 32 --max_source_length 512 --max_target_length 512 --num_train_epochs 1 --source_lang en --target_lang ro --dataset_name wmt16 --dataset_config ro-en --source_prefix "translate English to Romanian:"  --warmup_steps 50 --max_train_samples 2500 --dataloader_num_workers 2 --output_dir /tmp/translation --overwrite_output_dir --optim adamw_torch_fused --max_steps 10
+# native: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none --cudabacktrace=true -x true --force-overwrite=true -o adamw_t5_trainer python examples/pytorch/translation/run_translation.py --model_name_or_path t5-base --do_train --label_smoothing 0.1 --logging_strategy no --save_strategy no --per_device_train_batch_size 32 --max_source_length 512 --max_target_length 512 --num_train_epochs 1 --source_lang en --target_lang ro --dataset_name wmt16 --dataset_config ro-en --source_prefix "translate English to Romanian:"  --warmup_steps 50 --max_train_samples 2500 --dataloader_num_workers 2 --output_dir /tmp/translation --overwrite_output_dir --optim adamw_torch --max_steps 10
+
 import logging
 import os
 import sys
