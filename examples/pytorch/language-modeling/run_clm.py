@@ -21,6 +21,9 @@ https://huggingface.co/models?filter=text-generation
 """
 # You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
 
+# multi tensor optimizer: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none --cudabacktrace=true -x true --force-overwrite=true -o multi_tensor_adamw_gpt2_trainer python examples/pytorch/language-modeling/run_clm.py --model_name_or_path gpt2-medium --dataset_name wikitext --dataset_config_name wikitext-2-raw-v1 --logging_strategy no --save_strategy no --do_train --max_train_samples 1200 --per_device_train_batch_size 4 --num_train_epochs 1 --warmup_steps 8 --block_size 512 --report_to none --output_dir /tmp/run_clm --overwrite_output_dir --optim adamw_torch_fused --max_steps 10
+# native optimizer: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none --cudabacktrace=true -x true --force-overwrite=true -o adamw_gpt2_trainer python examples/pytorch/language-modeling/run_clm.py --model_name_or_path gpt2-medium --dataset_name wikitext --dataset_config_name wikitext-2-raw-v1 --logging_strategy no --save_strategy no --do_train --max_train_samples 1200 --per_device_train_batch_size 4 --num_train_epochs 1 --warmup_steps 8 --block_size 512 --report_to none --output_dir /tmp/run_clm --overwrite_output_dir --optim adamw_torch --max_steps 10
+
 import logging
 import math
 import os
