@@ -1416,6 +1416,7 @@ class Trainer:
                             )
 
                     # Optimizer step
+                    torch.cuda.nvtx.range_push(f"{self.args.optim}.step()")
                     optimizer_was_run = True
                     if self.deepspeed:
                         pass  # called outside the loop
@@ -1436,6 +1437,7 @@ class Trainer:
 
                     if optimizer_was_run and not self.deepspeed:
                         self.lr_scheduler.step()
+                    torch.cuda.nvtx.range_pop()
 
                     model.zero_grad()
                     self.state.global_step += 1
