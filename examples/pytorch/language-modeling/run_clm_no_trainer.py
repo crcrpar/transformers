@@ -22,6 +22,9 @@ https://huggingface.co/models?filter=text-generation
 """
 # You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
 
+# For multi tensor AdamW: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none  --capture-range=cudaProfilerApi --stop-on-range-end=true --cudabacktrace=true -x true --force-overwrite=true -o multi_tensor_adamw_gpt2  python run_clm_no_trainer.py --model_name_or_path gpt2-medium --dataset_name wikitext --dataset_config_name wikitext-2-raw-v1 --per_device_train_batch_size 4 --num_train_epochs 1 --block_size 512 --max_train_steps 10 --optimizer multi_tensor
+# For native AdamW: nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s none  --capture-range=cudaProfilerApi --stop-on-range-end=true --cudabacktrace=true -x true --force-overwrite=true -o native_adamw_gpt2  python run_clm_no_trainer.py --model_name_or_path gpt2-medium --dataset_name wikitext --dataset_config_name wikitext-2-raw-v1 --per_device_train_batch_size 4 --num_train_epochs 1 --block_size 512 --max_train_steps 10 --optimizer native
+
 import argparse
 import logging
 import math
@@ -32,6 +35,8 @@ from pathlib import Path
 
 import datasets
 import torch
+from torch import optim
+from torch.optim._multi_tensor import AdamW as MTAdamW
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -42,7 +47,7 @@ from huggingface_hub import Repository
 from transformers import (
     CONFIG_MAPPING,
     MODEL_MAPPING,
-    AdamW,
+    # AdamW,
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -65,6 +70,11 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a causal language modeling task")
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="native",
+    )
     parser.add_argument(
         "--dataset_name",
         type=str,
@@ -425,7 +435,12 @@ def main():
             "weight_decay": 0.0,
         },
     ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
+    if args.optimizer == "native":
+        optimizer = optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
+    elif args.optimizer == "multi_tensor":
+        optimizer = MTAdamW(optimizer_grouped_parameters, lr=args.learning_rate)
+    else:
+        assert False, f"Invalid {args.optimizer}"
 
     # Prepare everything with our `accelerator`.
     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
@@ -467,19 +482,32 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
     completed_steps = 0
 
+    torch.cuda.cudart().cudaProfilerStart()
+
     for epoch in range(args.num_train_epochs):
         model.train()
         for step, batch in enumerate(train_dataloader):
+            torch.cuda.nvtx.range_push(f"step {step}")
+
+            torch.cuda.nvtx.range_push("mode forward & loss")
             outputs = model(**batch)
             loss = outputs.loss
             loss = loss / args.gradient_accumulation_steps
+            torch.cuda.nvtx.range_pop()
+
+            torch.cuda.nvtx.range_push("backward")
             accelerator.backward(loss)
+            torch.cuda.nvtx.range_pop()
+
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                torch.cuda.nvtx.range_push("optimizer")
                 optimizer.step()
+                torch.cuda.nvtx.range_pop()
                 lr_scheduler.step()
                 optimizer.zero_grad()
                 progress_bar.update(1)
                 completed_steps += 1
+            torch.cuda.nvtx.range_pop()
 
             if completed_steps >= args.max_train_steps:
                 break
@@ -520,6 +548,8 @@ def main():
             tokenizer.save_pretrained(args.output_dir)
             if args.push_to_hub:
                 repo.push_to_hub(commit_message="End of training", auto_lfs_prune=True)
+
+    torch.cuda.cudart().cudaProfilerStop()
 
 
 if __name__ == "__main__":
