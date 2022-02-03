@@ -1918,6 +1918,7 @@ class Trainer:
                 # embedding. Other models such as wav2vec2's inputs are already float and thus
                 # may need special handling to match the dtypes of the model
                 kwargs.update(dict(dtype=self.args.hf_deepspeed_config.dtype()))
+            kwargs["non_blocking"] = True
             return data.to(**kwargs)
         return data
 
