@@ -1369,6 +1369,7 @@ class Trainer:
                 else:
                     tr_loss_step = self.training_step(model, inputs)
 
+                torch.cuda.nvtx.range_push("`tr_loss` update")
                 if (
                     args.logging_nan_inf_filter
                     and not is_torch_tpu_available()
@@ -1378,8 +1379,11 @@ class Trainer:
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
                 else:
                     tr_loss += tr_loss_step
+                torch.cuda.nvtx.range_pop()
 
+                torch.cuda.nvtx.range_push("self.current_flos (python scalar) update")
                 self.current_flos += float(self.floating_point_ops(inputs))
+                torch.cuda.nvtx.range_pop()
 
                 # Optimizer step for deepspeed must be called on every step regardless of the value of gradient_accumulation_steps
                 if self.deepspeed:
@@ -1400,20 +1404,28 @@ class Trainer:
                                 gradients = xm._fetch_gradients(self.optimizer)
                                 xm.all_reduce("sum", gradients, scale=1.0 / xm.xrt_world_size())
                             # AMP: gradients need unscaling
+                            torch.cuda.nvtx.range_push("self.scaler.unscale_(self.optimizer)")
                             self.scaler.unscale_(self.optimizer)
+                            torch.cuda.nvtx.range_pop()
 
                         if hasattr(self.optimizer, "clip_grad_norm"):
                             # Some optimizers (like the sharded optimizer) have a specific way to do gradient clipping
+                            torch.cuda.nvtx.range_push(f"self.optimizer.clip_grad_norm({args.max_grad_norm})")
                             self.optimizer.clip_grad_norm(args.max_grad_norm)
+                            torch.cuda.nvtx.range_pop()
                         elif hasattr(model, "clip_grad_norm_"):
                             # Some models (like FullyShardedDDP) have a specific way to do gradient clipping
+                            torch.cuda.nvtx.range_push(f"model.clip_grad_norm_({args.max_grad_norm})")
                             model.clip_grad_norm_(args.max_grad_norm)
+                            torch.cuda.nvtx.range_pop()
                         else:
                             # Revert to normal clipping otherwise, handling Apex or full precision
+                            torch.cuda.nvtx.range_push(f"nn.utils.clip_grad_norm_(amp.master_params(self.optimizer) if self.use_apex else model.parameters(), {args.max_grad_norm})")
                             nn.utils.clip_grad_norm_(
                                 amp.master_params(self.optimizer) if self.use_apex else model.parameters(),
                                 args.max_grad_norm,
                             )
+                            torch.cuda.nvtx.range_pop()
 
                     # Optimizer step
                     torch.cuda.nvtx.range_push(f"{self.args.optim}.step()")
@@ -1422,24 +1434,42 @@ class Trainer:
                         pass  # called outside the loop
                     elif is_torch_tpu_available():
                         if self.do_grad_scaling:
+                            torch.cuda.nvtx.range_push("self.scaler.step(self.optimizer)")
                             self.scaler.step(self.optimizer)
+                            torch.cuda.nvtx.range_pop()
+                            torch.cuda.nvtx.range_push("self.scaler.update()")
                             self.scaler.update()
+                            torch.cuda.nvtx.range_pop()
                         else:
                             xm.optimizer_step(self.optimizer)
                     elif self.do_grad_scaling:
+                        torch.cuda.nvtx.range_push("self.scaler.get_scale()")
                         scale_before = self.scaler.get_scale()
+                        torch.cuda.nvtx.range_pop()
+                        torch.cuda.nvtx.range_push("self.scaler.step(self.optimizer)")
                         self.scaler.step(self.optimizer)
+                        torch.cuda.nvtx.range_pop()
+                        torch.cuda.nvtx.range_push("self.scaler.update()")
                         self.scaler.update()
+                        torch.cuda.nvtx.range_pop()
+                        torch.cuda.nvtx.range_push("self.scaler.get_scale()")
                         scale_after = self.scaler.get_scale()
+                        torch.cuda.nvtx.range_pop()
                         optimizer_was_run = scale_before <= scale_after
                     else:
+                        torch.cuda.nvtx.range_push("self.optimizer.step()")
                         self.optimizer.step()
+                        torch.cuda.nvtx.range_pop()
 
                     if optimizer_was_run and not self.deepspeed:
+                        torch.cuda.nvtx.range_pish("self.lr_scheduler.step()")
                         self.lr_scheduler.step()
+                        torch.cuda.nvtx.range_pop()
                     torch.cuda.nvtx.range_pop()
 
+                    torch.cuda.nvtx.range_push("model.zero_grad")
                     model.zero_grad()
+                    torch.cuda.nvtx.range_pop()
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
