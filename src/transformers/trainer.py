@@ -1462,7 +1462,7 @@ class Trainer:
                         torch.cuda.nvtx.range_pop()
 
                     if optimizer_was_run and not self.deepspeed:
-                        torch.cuda.nvtx.range_pish("self.lr_scheduler.step()")
+                        torch.cuda.nvtx.range_push("self.lr_scheduler.step()")
                         self.lr_scheduler.step()
                         torch.cuda.nvtx.range_pop()
                     torch.cuda.nvtx.range_pop()
