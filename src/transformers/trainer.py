@@ -1988,6 +1988,7 @@ class Trainer:
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
 
+        torch.cuda.nvtx.range_push("loss.backward()")
         if self.do_grad_scaling:
             self.scaler.scale(loss).backward()
         elif self.use_apex:
@@ -1998,8 +1999,12 @@ class Trainer:
             loss = self.deepspeed.backward(loss)
         else:
             loss.backward()
+        torch.cuda.nvtx.range_pop()
 
-        return loss.detach()
+        torch.cuda.nvtx.range_push("loss.detach()")
+        detached_loss = loss.detach()
+        torch.cuda.nvtx.range_pop()
+        return detached_loss
 
     def compute_loss(self, model, inputs, return_outputs=False):
         """
@@ -2011,17 +2016,21 @@ class Trainer:
             labels = inputs.pop("labels")
         else:
             labels = None
+        torch.cuda.nvtx.range_push("model.forward")
         outputs = model(**inputs)
+        torch.cuda.nvtx.range_pop()
         # Save past state if it exists
         # TODO: this needs to be fixed and made cleaner later.
         if self.args.past_index >= 0:
             self._past = outputs[self.args.past_index]
 
+        torch.cuda.nvtx.range_push("calc loss")
         if labels is not None:
             loss = self.label_smoother(outputs, labels)
         else:
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+        torch.cuda.nvtx.range_pop()
 
         return (loss, outputs) if return_outputs else loss
 
