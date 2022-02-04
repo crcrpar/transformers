@@ -1342,6 +1342,7 @@ class Trainer:
 
             step = -1
             for step, inputs in enumerate(epoch_iterator):
+                torch.cuda.nvtx.range_push(f"epoch: {epoch}, step: {step}")
 
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
@@ -1480,6 +1481,7 @@ class Trainer:
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
+                torch.cuda.nvtx.range_pop()
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
             if step < 0:

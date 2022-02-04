@@ -882,6 +882,7 @@ class T5Stack(T5PreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
     ):
+        torch.cuda.nvtx.range_push("T5Stack.forward")
         # Model parallel
         if self.model_parallel:
             torch.cuda.set_device(self.first_device)
@@ -920,7 +921,9 @@ class T5Stack(T5PreTrainedModel):
             assert self.is_decoder, f"`use_cache` can only be set to `True` if {self} is used as a decoder"
 
         if attention_mask is None:
-            attention_mask = torch.ones(batch_size, mask_seq_length).to(inputs_embeds.device)
+            torch.cuda.nvtx.range_push("attention_mask = torch.ones(batch_size, mask_seq_length).to(inputs_embeds.device)")
+            attention_mask = torch.ones(batch_size, mask_seq_length).to(inputs_embeds.device, non_blocking=True)
+            torch.cuda.nvtx.range_pop()
         if self.is_decoder and encoder_attention_mask is None and encoder_hidden_states is not None:
             encoder_seq_length = encoder_hidden_states.shape[1]
             encoder_attention_mask = torch.ones(
@@ -941,7 +944,9 @@ class T5Stack(T5PreTrainedModel):
             encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
             encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
             if encoder_attention_mask is None:
+                torch.cuda.nvtx.range_push("encoder_attention_mask = torch.ones(encoder_hidden_shape, device=inputs_embeds.device)")
                 encoder_attention_mask = torch.ones(encoder_hidden_shape, device=inputs_embeds.device)
+                torch.cuda.nvtx.range_pop()
             encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask)
         else:
             encoder_extended_attention_mask = None
@@ -1057,6 +1062,7 @@ class T5Stack(T5PreTrainedModel):
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
+        torch.cuda.nvtx.range_pop()
         if not return_dict:
             return tuple(
                 v
@@ -1564,6 +1570,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         >>> print(tokenizer.decode(outputs[0], skip_special_tokens=True))
         >>> # studies have shown that owning a dog is good for you.
         ```"""
+        torch.cuda.nvtx.range_push("T5ForConditionalGeneration")
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1575,6 +1582,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
 
         # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
+            torch.cuda.nvtx.range_push("self.encoder")
             # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
@@ -1585,6 +1593,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
+            torch.cuda.nvtx.range_pop()
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
@@ -1613,6 +1622,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
         # Decode
+        torch.cuda.nvtx.range_push("self.decoder.forward")
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -1627,6 +1637,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
+        torch.cuda.nvtx.range_pop()
 
         sequence_output = decoder_outputs[0]
 
@@ -1641,7 +1652,9 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
             sequence_output = sequence_output * (self.model_dim ** -0.5)
 
+        torch.cuda.nvtx.range_push("lm_logits = self.lm_head(sequence_output)")
         lm_logits = self.lm_head(sequence_output)
+        torch.cuda.nvtx.range_pop()
 
         loss = None
         if labels is not None:
@@ -1653,6 +1666,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
             return ((loss,) + output) if loss is not None else output
 
+        torch.cuda.nvtx.range_pop()
         return Seq2SeqLMOutput(
             loss=loss,
             logits=lm_logits,
@@ -1781,7 +1795,7 @@ class T5EncoderModel(T5PreTrainedModel):
         class PreTrainedModel
         """
         for layer, heads in heads_to_prune.items():
-            self.encoder.layer[layer].attention.prune_heads(heads)
+           self.encoder.layer[layer].attention.prune_heads(heads)
 
     @add_start_docstrings_to_model_forward(T5_ENCODER_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=BaseModelOutput, config_class=_CONFIG_FOR_DOC)
@@ -1811,6 +1825,7 @@ class T5EncoderModel(T5PreTrainedModel):
         >>> outputs = model(input_ids=input_ids)
         >>> last_hidden_states = outputs.last_hidden_state
         ```"""
+        torch.cuda.nvtx.range_push("T5EncoderModel.forward")
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         encoder_outputs = self.encoder(
@@ -1823,4 +1838,5 @@ class T5EncoderModel(T5PreTrainedModel):
             return_dict=return_dict,
         )
 
+        torch.cuda.nvtx.range_pop()
         return encoder_outputs
