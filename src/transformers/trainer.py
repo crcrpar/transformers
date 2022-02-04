@@ -1358,6 +1358,7 @@ class Trainer:
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
+                torch.cuda.nvtx.range_push("forward and backward")
                 if (
                     ((step + 1) % args.gradient_accumulation_steps != 0)
                     and args.local_rank != -1
@@ -1368,6 +1369,7 @@ class Trainer:
                         tr_loss_step = self.training_step(model, inputs)
                 else:
                     tr_loss_step = self.training_step(model, inputs)
+                torch.cuda.nvtx.range_pop()
 
                 torch.cuda.nvtx.range_push("`tr_loss` update")
                 if (
@@ -1967,7 +1969,9 @@ class Trainer:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
+        torch.cuda.nvtx.range_push("Move input tensors")
         inputs = self._prepare_inputs(inputs)
+        torch.cuda.nvtx.range_pop()
 
         if is_sagemaker_mp_enabled():
             scaler = self.scaler if self.do_grad_scaling else None
