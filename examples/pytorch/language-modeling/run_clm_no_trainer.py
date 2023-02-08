@@ -481,7 +481,7 @@ def main():
             "weight_decay": 0.0,
         },
     ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate, fused=True)
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
@@ -573,6 +573,7 @@ def main():
         if args.with_tracking:
             total_loss = 0
         for step, batch in enumerate(train_dataloader):
+            torch.cuda.nvtx.range_push(f"{step=}")
             # We need to skip steps until we reach the resumed step
             if args.resume_from_checkpoint and epoch == starting_epoch:
                 if resume_step is not None and step < resume_step:
@@ -582,15 +583,23 @@ def main():
                     continue
 
             with accelerator.accumulate(model):
+                torch.cuda.nvtx.range_push("FWD")
                 outputs = model(**batch)
+                torch.cuda.nvtx.range_pop()
                 loss = outputs.loss
                 # We keep track of the loss at each epoch
                 if args.with_tracking:
                     total_loss += loss.detach().float()
+                torch.cuda.nvtx.range_push("BWD")
                 accelerator.backward(loss)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("optimizer.step")
                 optimizer.step()
+                torch.cuda.nvtx.range_pop()
                 lr_scheduler.step()
+                torch.cuda.nvtx.range_push("optimizer.zero_grad")
                 optimizer.zero_grad()
+                torch.cuda.nvtx.range_pop()
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -604,7 +613,9 @@ def main():
                         output_dir = os.path.join(args.output_dir, output_dir)
                     accelerator.save_state(output_dir)
             if completed_steps >= args.max_train_steps:
+                torch.cuda.nvtx.range_pop()
                 break
+            torch.cuda.nvtx.range_pop()
 
         model.eval()
         losses = []
