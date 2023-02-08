@@ -1129,6 +1129,7 @@ class Trainer:
 
             optimizer_cls = AdamW
             optimizer_kwargs.update(adam_kwargs)
+            optimizer_kwargs.update({"fused": True,})
         elif args.optim == OptimizerNames.ADAMW_TORCH_XLA:
             try:
                 from torch_xla.amp.syncfree import AdamW
@@ -1892,6 +1893,7 @@ class Trainer:
 
                     # Optimizer step
                     optimizer_was_run = True
+                    torch.cuda.nvtx.range_push(f"{step=},optimizer.step")
                     if self.deepspeed:
                         pass  # called outside the loop
                     elif is_torch_tpu_available():
@@ -1908,6 +1910,7 @@ class Trainer:
                         optimizer_was_run = scale_before <= scale_after
                     else:
                         self.optimizer.step()
+                    torch.cuda.nvtx.range_pop()
 
                     if optimizer_was_run and not self.deepspeed:
                         self.lr_scheduler.step()
