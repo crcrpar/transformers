@@ -136,6 +136,7 @@ class OptimizerNames(ExplicitEnum):
     ADAMW_HF = "adamw_hf"
     ADAMW_TORCH = "adamw_torch"
     ADAMW_TORCH_FUSED = "adamw_torch_fused"
+    ADAMW_TORCH_FOREACH = "adamw_torch_foreach"
     ADAMW_TORCH_XLA = "adamw_torch_xla"
     ADAMW_APEX_FUSED = "adamw_apex_fused"
     ADAFACTOR = "adafactor"

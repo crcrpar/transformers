@@ -1150,6 +1150,10 @@ class Trainer:
 
             optimizer_cls = AdamW
             optimizer_kwargs.update(adam_kwargs)
+            if args.optim == OptimizerNames.ADAMW_TORCH:
+                optimizer_kwargs.update({"foreach": False, "fused": False})
+            if args.optim == OptimizerNames.ADAMW_TORCH_FOREACH:
+                optimizer_kwargs.update({"foreach": True})
             if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
                 optimizer_kwargs.update({"fused": True})
         elif args.optim == OptimizerNames.ADAMW_TORCH_XLA:
@@ -1996,6 +2000,8 @@ class Trainer:
 
                     if optimizer_was_run and not self.deepspeed:
                         self.lr_scheduler.step()
+                    if not optimizer_was_run and self.do_grad_scaling:
+                        logger.info(f"{epoch = }, {step = }, optimizer.step skipped. {scale_before = }, {scale_after = }")
 
                     model.zero_grad()
                     self.state.global_step += 1
