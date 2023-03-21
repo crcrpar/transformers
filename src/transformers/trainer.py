@@ -1145,7 +1145,7 @@ class Trainer:
 
             optimizer_cls = AdamW
             optimizer_kwargs.update(adam_kwargs)
-        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED]:
+        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED, OptimizerNames.ADAMW_TORCH_FOREACH]:
             from torch.optim import AdamW
 
             optimizer_cls = AdamW
