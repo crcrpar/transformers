@@ -2000,15 +2000,15 @@ class Trainer:
 
                     if optimizer_was_run and not self.deepspeed:
                         self.lr_scheduler.step()
-                    if not optimizer_was_run and self.do_grad_scaling:
-                        logger.info(f"{epoch = }, {step = }, optimizer.step skipped. {scale_before = }, {scale_after = }")
+                    if self.do_grad_scaling:
+                        logger.info(f"{epoch = }, {step = }, {optimizer_was_run = }. {scale_before = }, {scale_after = }")
 
-                    model.zero_grad()
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    model.zero_grad()
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -2270,6 +2270,14 @@ class Trainer:
 
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
+
+            for i, param_group in enumerate(self.optimizer.param_groups):
+                params = [p.view(-1) for p in param_group['params']]
+                grads = [p.grad.view(-1) for p in params if p.grad is not None]
+                flat_params = torch.cat(params)
+                flat_grads = torch.cat(grads)
+                logs[f"param_norm_group{i}"] = torch.norm(flat_params, p=2).cpu().item()
+                logs[f"grad_norm_group{i}"] = torch.norm(flat_grads, p=2).cpu().item()
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
