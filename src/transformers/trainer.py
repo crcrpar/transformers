@@ -641,7 +641,8 @@ class Trainer:
 
                         self.scaler = GradScaler()
                     else:
-                        self.scaler = torch.cuda.amp.GradScaler()
+                        logger.warning("initializing `torch.cuda.amp.GradScaler`")
+                        self.scaler = torch.cuda.amp.GradScaler(init_scale=2.0 ** 16)
             elif args.half_precision_backend == "cpu_amp":
                 self.use_cpu_amp = True
                 self.amp_dtype = torch.bfloat16
@@ -1995,6 +1996,7 @@ class Trainer:
                         self.scaler.update()
                         scale_after = self.scaler.get_scale()
                         optimizer_was_run = scale_before <= scale_after
+                        logger.info(f"{scale_before = }, {scale_after = }")
                     else:
                         self.optimizer.step()
 
@@ -2009,6 +2011,11 @@ class Trainer:
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
                     model.zero_grad()
+
+                    # if not optimizer_was_run and self.do_grad_scaling and scale_after <= 0:
+                    #     self.control.should_training_stop = True
+                    #     logger.warning("Grad Scaling became 0, finish training")
+
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -2273,11 +2280,15 @@ class Trainer:
 
             for i, param_group in enumerate(self.optimizer.param_groups):
                 params = [p.view(-1) for p in param_group['params']]
+                logs[f"num_param_of_param_group{i}"] = len(params)
+                logs[f"num_nan_param_of_param_group{i}"] = sum(int(torch.isnan(t).any()) for t in params)
                 grads = [p.grad.view(-1) for p in params if p.grad is not None]
                 flat_params = torch.cat(params)
-                flat_grads = torch.cat(grads)
                 logs[f"param_norm_group{i}"] = torch.norm(flat_params, p=2).cpu().item()
-                logs[f"grad_norm_group{i}"] = torch.norm(flat_grads, p=2).cpu().item()
+                logs[f"param_std_group{i}"], logs[f"param_mean_group{i}"] = (t.cpu().item() for t in torch.std_mean(flat_params))
+                if grads:
+                    flat_grads = torch.cat(grads)
+                    logs[f"grad_norm_group{i}"] = torch.norm(flat_grads, p=2).cpu().item()
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
