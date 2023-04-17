@@ -1932,10 +1932,11 @@ class Trainer:
                 else:
                     tr_loss_step = self.training_step(model, inputs)
 
+                is_loss_invalid = torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step)
                 if (
                     args.logging_nan_inf_filter
                     and not is_torch_tpu_available()
-                    and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
+                    and (is_loss_finite and not getattr(self, "are_params_nan", False))
                 ):
                     # if loss is nan or inf simply add the average of previous logged losses
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
@@ -1996,7 +1997,6 @@ class Trainer:
                         self.scaler.update()
                         scale_after = self.scaler.get_scale()
                         optimizer_was_run = scale_before <= scale_after
-                        logger.info(f"{scale_before = }, {scale_after = }")
                     else:
                         self.optimizer.step()
 
@@ -2011,10 +2011,6 @@ class Trainer:
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
                     model.zero_grad()
-
-                    # if not optimizer_was_run and self.do_grad_scaling and scale_after <= 0:
-                    #     self.control.should_training_stop = True
-                    #     logger.warning("Grad Scaling became 0, finish training")
 
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
@@ -2281,7 +2277,9 @@ class Trainer:
             for i, param_group in enumerate(self.optimizer.param_groups):
                 params = [p.view(-1) for p in param_group['params']]
                 logs[f"num_param_of_param_group{i}"] = len(params)
-                logs[f"num_nan_param_of_param_group{i}"] = sum(int(torch.isnan(t).any()) for t in params)
+                num_nan_params = sum(int(torch.isnan(t).any()) for t in params)
+                logs[f"num_nan_param_of_param_group{i}"] = num_nan_params
+                self.are_params_nan = num_nan_params > 0
                 grads = [p.grad.view(-1) for p in params if p.grad is not None]
                 flat_params = torch.cat(params)
                 logs[f"param_norm_group{i}"] = torch.norm(flat_params, p=2).cpu().item()
