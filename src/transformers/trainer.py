@@ -1936,7 +1936,7 @@ class Trainer:
                 if (
                     args.logging_nan_inf_filter
                     and not is_torch_tpu_available()
-                    and (is_loss_finite and not getattr(self, "are_params_nan", False))
+                    and (is_loss_invalid and not getattr(self, "are_params_nan", False))
                 ):
                     # if loss is nan or inf simply add the average of previous logged losses
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
