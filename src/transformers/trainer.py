@@ -1878,7 +1878,9 @@ class Trainer:
                         scale_after = self.scaler.get_scale()
                         optimizer_was_run = scale_before <= scale_after
                     else:
+                        torch.cuda.nvtx.range_push("optimizer.step")
                         self.optimizer.step()
+                        torch.cuda.nvtx.range_pop()
                         optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
 
                     if optimizer_was_run:
